@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_TOPICS, newDeviceId, snapshot, groupTopics, feedbackFor, groupCopyText, shareCards } from '../logic.js';
+import { DEFAULT_TOPICS, newDeviceId, snapshot, groupTopics, feedbackFor, groupCopyText, shareCards, selectedShareCards } from '../logic.js';
 import { loadServer } from './fake-gas.mjs';
 
 test('화면 기본 주제 목록은 서버 setup 목록과 같다', () => {
@@ -49,26 +49,26 @@ test('groupCopyText는 이름 없이 조별 문구를 만든다', () => {
   ].join('\n'));
 });
 
-test('shareCards는 작성자 이름 없이 내용과 기존 주제 표기를 반환한다', () => {
+test('shareCards는 작성자 이름과 익명, 줄바꿈, 기존 주제 표기를 반환한다', () => {
   const entries = [entry('민지', { 0: '  예시가 좋았어요  ' }), entry('', { 0: '첫 줄\r\n둘째 줄' })];
   const [card] = shareCards(DEFAULT_TOPICS, entries);
   assert.deepEqual(card, {
     group: '형제1조',
     items: [
-      { label: '1. 파스칼의 내기 (발표: 형제1)', count: 2, texts: ['예시가 좋았어요', '첫 줄\n둘째 줄'] },
-      { label: '2. 홍해의 기적 (발표: 형제2)', count: 0, texts: [] },
+      { label: '1. 파스칼의 내기 (발표: 형제1)', count: 2, feedbacks: [
+        { name: '민지', text: '예시가 좋았어요' }, { name: '익명', text: '첫 줄\n둘째 줄' },
+      ] },
+      { label: '2. 홍해의 기적 (발표: 형제2)', count: 0, feedbacks: [] },
     ],
   });
-  assert.equal(JSON.stringify(card).includes('민지'), false);
-  assert.equal(JSON.stringify(card).includes('익명'), false);
 });
 
 test('shareCards는 빈 칸을 제외하고 피드백 없는 주제도 count 0으로 남긴다', () => {
   const cards = shareCards(DEFAULT_TOPICS, [entry('작성자', { 0: ' \r\n\t ', 1: '의견' })]);
-  assert.deepEqual(cards[0].items.map(({ count, texts }) => ({ count, texts })), [
-    { count: 0, texts: [] }, { count: 1, texts: ['의견'] },
+  assert.deepEqual(cards[0].items.map(({ count, feedbacks }) => ({ count, feedbacks })), [
+    { count: 0, feedbacks: [] }, { count: 1, feedbacks: [{ name: '작성자', text: '의견' }] },
   ]);
-  assert.ok(shareCards(DEFAULT_TOPICS, []).every((card) => card.items.every((item) => item.count === 0 && item.texts.length === 0)));
+  assert.ok(shareCards(DEFAULT_TOPICS, []).every((card) => card.items.every((item) => item.count === 0 && item.feedbacks.length === 0)));
 });
 
 test('shareCards는 전달받은 조와 주제 순서를 유지하며 입력을 바꾸지 않는다', () => {
@@ -80,4 +80,15 @@ test('shareCards는 전달받은 조와 주제 순서를 유지하며 입력을 
   assert.deepEqual(cards[0].items.map((item) => item.label), ['9. 닭이 먼저냐 알이 먼저냐 (발표: 자매1)', '10. 666표 (발표: 자매2)']);
   assert.equal(JSON.stringify({ topics, entries }), before);
   assert.deepEqual(shareCards([], entries), []);
+});
+
+test('공유 카드에는 체크한 피드백만 들어가고 선택하지 않은 내용은 빠진다', () => {
+  const entries = [entry('민지', { 0: '비공개로 둘 의견', 1: '다른 주제 의견' }), entry('', { 0: '공개할 의견' })];
+  const cards = selectedShareCards(DEFAULT_TOPICS, entries, new Set(['1:1']));
+  assert.deepEqual(cards[0].items[0].feedbacks, [{ name: '익명', text: '공개할 의견' }]);
+  assert.equal(cards[0].items[0].count, 1);
+  assert.ok(cards.flatMap(card => card.items).slice(1).every(item => item.count === 0));
+  assert.equal(JSON.stringify(cards).includes('비공개로 둘 의견'), false);
+  assert.equal(JSON.stringify(cards).includes('다른 주제 의견'), false);
+  assert.ok(selectedShareCards(DEFAULT_TOPICS, entries, new Set()).every(card => card.items.every(item => item.count === 0)));
 });
